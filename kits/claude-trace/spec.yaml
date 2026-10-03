@@ -1,0 +1,71 @@
+# Requires Docker Sandboxes 0.36 or newer — that is where `schemaVersion: "2"`
+# lands. An older `sbx` decodes this file with the v1 grammar instead and
+# rejects `environment`, `setup`, and `ports`; check with `sbx version`.
+schemaVersion: "2"
+kind: mixin
+name: claude-trace
+version: "0.1.0"
+displayName: Claude Trace
+description: "Live dashboard showing how Claude Code is working: decisions, sub-agents, tokens, and a process confidence score — so you can decide how closely to review before shipping"
+sourceURL: "https://github.com/crocogiciel/docker-sbx-template"
+
+# No permissions.network block: the dashboard only reads local transcript
+# files under $CLAUDE_CONFIG_DIR (or ~/.claude/projects) and serves its own
+# static UI. It never makes an outbound request, so it needs no network
+# allowlist at all.
+
+# `container` must match CLAUDE_TRACE_PORT below — the spec grammar has no
+# cross-referencing between `ports` and `environment.variables`, so the two
+# are kept in sync by hand. `protocol` is deliberately omitted rather than set
+# to "tcp": per the kits-v2 docs, an empty protocol publishes IPv4-only
+# (127.0.0.1), which is what a server bound to 0.0.0.0 needs — "tcp" would
+# also publish ::1, and a client arriving over that gets accepted then reset
+# since nothing in the sandbox listens on IPv6. This auto-publishes the port
+# on an ephemeral host port at sandbox creation; pin a stable one with
+# `sbx ports <sandbox> --publish <host>:<container>` (see README).
+ports:
+  - container: 4317
+    name: dashboard
+
+environment:
+  variables:
+    # The port the dashboard's HTTP/SSE server binds inside the sandbox.
+    # Changing it means editing this file (and the matching `ports.container`
+    # above) before `sbx create --kit`/`sbx run --kit` — a kit's environment
+    # block isn't re-read after the sandbox exists.
+    CLAUDE_TRACE_PORT: "4317"
+
+setup:
+  startup:
+    # Startup commands are argv arrays, not shell strings (a plain string is
+    # rejected: "cannot unmarshal !!str ... into []string") — verified by
+    # trial against `sbx kit validate`, not assumed from docs. Wrapped in
+    # `/bin/sh -c` for the restart loop below.
+    #
+    # Startup commands run once per sandbox (re)start, dispatched in the
+    # background (`background: true`) so they never gate the agent's own
+    # launch — but nothing in the sandbox runtime supervises or restarts a
+    # background startup process mid-session if it crashes. The `while true`
+    # loop is this kit's own crash recovery; `server.js` itself is a
+    # zero-dependency Node http server (no npm install, so no network access
+    # needed to start it).
+    - command:
+        - /bin/sh
+        - -c
+        - |
+          while true; do
+            node /home/agent/.claude-trace/server.js >> /home/agent/.claude-trace.log 2>&1
+            sleep 1
+          done
+      user: "1000"
+      background: true
+      description: "Start the claude-trace dashboard server (self-restarting)"
+
+agentInstructions:
+  content: |
+    A live dashboard of this session (decisions, sub-agents, token use, and a
+    process confidence score) is running inside the sandbox on
+    $CLAUDE_TRACE_PORT (default 4317), auto-published on an ephemeral host
+    port. It is for the human operator, not for you — no action needed on
+    your part. If asked, point out that a stable host port comes from
+    `sbx ports <sandbox> --publish <host-port>:<container-port>`.

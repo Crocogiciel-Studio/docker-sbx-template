@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>claude-trace</title>
+<style>
+  :root {
+    --bg: #14161a;
+    --panel: #1b1e24;
+    --panel-2: #20242b;
+    --border: #2a2e37;
+    --text: #e4e6eb;
+    --muted: #8a8f9c;
+    --green: #3ecf8e;
+    --orange: #e8a33d;
+    --red: #e5484d;
+    --blue: #5b9dff;
+    --purple: #b48bff;
+    --teal: #4fd1c5;
+    --yellow: #e8d24d;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    overflow-x: hidden;
+  }
+  #app { max-width: 480px; margin: 0 auto; padding: 10px 10px 40px; }
+  header { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+  header .title { font-weight: 700; font-size: 14px; letter-spacing: 0.02em; }
+  header .meta { color: var(--muted); font-size: 11px; word-break: break-all; }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    overflow: hidden;
+  }
+  .panel h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0;
+    padding: 8px 10px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    user-select: none;
+  }
+  .panel h2:hover { color: var(--text); }
+  .panel .body { padding: 0 10px 10px; }
+  .panel.collapsed .body { display: none; }
+  .chev { transition: transform 0.15s; font-size: 10px; }
+  .panel.collapsed .chev { transform: rotate(-90deg); }
+
+  .score-row { display: flex; align-items: center; gap: 12px; padding: 10px; }
+  .score-circle {
+    width: 56px; height: 56px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; font-weight: 700; flex: 0 0 auto;
+    border: 3px solid var(--muted);
+  }
+  .score-circle.green { border-color: var(--green); color: var(--green); }
+  .score-circle.orange { border-color: var(--orange); color: var(--orange); }
+  .score-circle.red { border-color: var(--red); color: var(--red); }
+  .score-label { font-size: 12px; color: var(--muted); text-transform: uppercase; }
+  .score-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .signals { padding: 0 10px 10px; display: flex; flex-direction: column; gap: 6px; }
+  .signal { display: flex; gap: 6px; font-size: 11.5px; align-items: flex-start; }
+  .signal .sign { flex: 0 0 18px; font-weight: 700; text-align: center; }
+  .signal .sign.pos { color: var(--green); }
+  .signal .sign.neg { color: var(--red); }
+  .signal .txt b { color: var(--text); }
+  .signal .txt span { color: var(--muted); }
+
+  .toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
+  button#copy-btn {
+    flex: 1; background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 10px; font-size: 12px; cursor: pointer;
+  }
+  button#copy-btn:hover { border-color: var(--blue); }
+  #copy-status { font-size: 11px; color: var(--green); align-self: center; min-width: 48px; }
+
+  .timeline { display: flex; flex-direction: column; gap: 4px; }
+  .node { border-left: 3px solid var(--border); padding: 4px 8px; border-radius: 4px; background: var(--panel-2); }
+  .node.prompt { border-left-color: var(--text); background: transparent; padding-left: 0; border-left: none; font-weight: 600; font-size: 12px; margin-top: 8px; color: var(--text); }
+  .node.explore { border-left-color: var(--blue); }
+  .node.edit { border-left-color: var(--purple); }
+  .node.verify { border-left-color: var(--green); }
+  .node.verify.err { border-left-color: var(--red); }
+  .node.plan { border-left-color: var(--yellow); }
+  .node.exec { border-left-color: var(--muted); }
+  .node.other { border-left-color: var(--muted); }
+  .node.subagent { border-left-color: var(--teal); cursor: pointer; }
+  .node.err { outline: 1px solid var(--red); }
+  .node .line { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; }
+  .node .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .node .ts { color: var(--muted); font-size: 10px; flex: 0 0 auto; }
+  .node .badge-err { color: var(--red); font-size: 10px; font-weight: 700; margin-left: 4px; }
+  .subagent-children { margin: 4px 0 0 10px; padding-left: 8px; border-left: 1px dashed var(--border); display: none; }
+  .node.subagent.open + .subagent-children { display: block; }
+  .subagent-children .child { font-size: 11px; color: var(--muted); padding: 2px 0; }
+  .empty-hint { color: var(--muted); padding: 10px; font-size: 12px; }
+  .truncate-note { color: var(--muted); font-size: 11px; padding: 4px 0; }
+
+  .bar-row { margin-bottom: 8px; }
+  .bar-row .bar-label { display: flex; justify-content: space-between; font-size: 11.5px; margin-bottom: 3px; }
+  .bar-row .bar-label span.muted { color: var(--muted); }
+  .bar-track { height: 7px; background: var(--panel-2); border-radius: 4px; overflow: hidden; display: flex; }
+  .bar-seg.input { background: var(--blue); }
+  .bar-seg.output { background: var(--purple); }
+  .bar-seg.cacheRead { background: var(--teal); }
+  .bar-seg.cacheCreation { background: var(--orange); }
+  .legend { display: flex; gap: 10px; font-size: 10.5px; color: var(--muted); flex-wrap: wrap; margin: 4px 0 10px; }
+  .legend .dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 3px; vertical-align: -1px; }
+
+  footer { color: var(--muted); font-size: 10.5px; text-align: center; margin-top: 16px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="title">claude-trace</div>
+    <div class="meta" id="meta">connecting…</div>
+  </header>
+
+  <div class="toolbar">
+    <button id="copy-btn">Copy PR summary</button>
+    <span id="copy-status"></span>
+  </div>
+
+  <div class="panel" id="confidence-panel">
+    <h2 onclick="togglePanel(this)">Confidence <span class="chev">▾</span></h2>
+    <div class="body">
+      <div class="score-row" id="score-row"></div>
+      <div class="signals" id="signals"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="timeline-panel">
+    <h2 onclick="togglePanel(this)">Timeline <span class="chev">▾</span></h2>
+    <div class="body">
+      <div class="timeline" id="timeline"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="tokens-panel">
+    <h2 onclick="togglePanel(this)">Tokens <span class="chev">▾</span></h2>
+    <div class="body" id="tokens"></div>
+  </div>
+
+  <footer id="footer"></footer>
+</div>
+
+<script>
+'use strict';
+
+var latestState = null;
+
+function togglePanel(h2) {
+  h2.parentElement.classList.toggle('collapsed');
+}
+
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+function relTime(iso) {
+  if (!iso) return '';
+  var d = Date.now() - Date.parse(iso);
+  if (d < 0) d = 0;
+  var s = Math.round(d / 1000);
+  if (s < 60) return s + 's ago';
+  var m = Math.round(s / 60);
+  if (m < 60) return m + 'm ago';
+  var h = Math.round(m / 60);
+  return h + 'h ago';
+}
+
+function timeOnly(iso) {
+  if (!iso) return '';
+  try { return new Date(iso).toLocaleTimeString(); } catch (e) { return ''; }
+}
+
+function totalTokens(u) {
+  if (!u) return 0;
+  return (u.inputTokens || 0) + (u.outputTokens || 0) + (u.cacheReadTokens || 0) + (u.cacheCreationTokens || 0);
+}
+
+function renderMeta(state) {
+  var bits = [];
+  if (state.cwd) bits.push(esc(shortPath(state.cwd)));
+  if (state.gitBranch) bits.push('branch ' + esc(state.gitBranch));
+  if (state.sessionId) bits.push(esc(state.sessionId.slice(0, 8)));
+  bits.push(relTime(state.lastActivityAt));
+  document.getElementById('meta').textContent = bits.join(' · ');
+}
+
+function shortPath(p) {
+  var parts = String(p).split('/');
+  return parts.length > 3 ? '…/' + parts.slice(-2).join('/') : p;
+}
+
+function renderScore(state) {
+  var score = state.score;
+  var row = document.getElementById('score-row');
+  row.innerHTML =
+    '<div class="score-circle ' + score.level + '">' + score.score + '</div>' +
+    '<div><div class="score-label">' + score.level + ' confidence</div>' +
+    '<div class="score-sub">Process heuristic — read before acting, read the diff before shipping.</div></div>';
+
+  var top = score.signals.slice(0, 3);
+  var html = top.map(function (s) {
+    var sign = s.contribution >= 0 ? 'pos' : 'neg';
+    var arrow = s.contribution >= 0 ? '+' + s.contribution : s.contribution;
+    return '<div class="signal"><span class="sign ' + sign + '">' + arrow + '</span>' +
+      '<span class="txt"><b>' + esc(s.label) + '</b><br><span>' + esc(s.detail) + '</span></span></div>';
+  }).join('');
+  if (score.signals.length > 3) {
+    html += '<div class="signal"><span class="sign"></span><span class="txt"><span>' +
+      (score.signals.length - 3) + ' more signal(s) below the top 3 — see PR summary for all.</span></span></div>';
+  }
+  document.getElementById('signals').innerHTML = html || '<div class="signal"><span class="txt"><span>No signals triggered.</span></span></div>';
+}
+
+var KIND_LABEL = {
+  prompt: 'Prompt', explore: 'Explore', edit: 'Edit', verify: 'Verify',
+  plan: 'Plan', exec: 'Exec', subagent: 'Sub-agent', other: 'Tool'
+};
+
+function nodeClass(a) {
+  var cls = 'node ' + a.kind;
+  if (a.kind === 'verify' && a.isError) cls += ' err';
+  else if (a.isError) cls += ' err';
+  return cls;
+}
+
+function renderTimeline(state) {
+  var el = document.getElementById('timeline');
+  var subagentsById = {};
+  (state.subagents || []).forEach(function (s) { subagentsById[s.id] = s; });
+
+  var rows = (state.actions || []).filter(function (a) { return a.kind !== 'assistant_text'; });
+  if (!rows.length) {
+    el.innerHTML = '<div class="empty-hint">No actions yet — waiting for the session to do something.</div>';
+    return;
+  }
+
+  var html = '';
+  if (state.actionsTruncated) {
+    html += '<div class="truncate-note">' + state.actionsDroppedCount + ' earlier action(s) not shown (showing the most recent).</div>';
+  }
+
+  rows.forEach(function (a) {
+    if (a.kind === 'prompt') {
+      html += '<div class="node prompt">' + esc((a.detail || '').split('\n')[0].slice(0, 90)) + '</div>';
+      return;
+    }
+    var openCls = a.kind === 'subagent' ? ' open' : '';
+    html += '<div class="' + nodeClass(a) + openCls + '" ' + (a.kind === 'subagent' ? 'onclick="this.classList.toggle(\'open\')"' : '') + '>' +
+      '<div class="line"><span class="label">' + (a.kind === 'subagent' ? '▸ ' : '') + esc(a.label) +
+      (a.isError ? '<span class="badge-err">ERR</span>' : '') + '</span>' +
+      '<span class="ts">' + timeOnly(a.timestamp) + '</span></div></div>';
+
+    if (a.kind === 'subagent' && a.subagentId && subagentsById[a.subagentId]) {
+      var sub = subagentsById[a.subagentId];
+      html += '<div class="subagent-children">';
+      if (sub.children && sub.children.length) {
+        sub.children.slice(0, 20).forEach(function (c) {
+          html += '<div class="child">' + esc((c.text || '').split('\n')[0].slice(0, 90)) + '</div>';
+        });
+        if (sub.children.length > 20) {
+          html += '<div class="child">+' + (sub.children.length - 20) + ' more…</div>';
+        }
+      } else {
+        html += '<div class="child">' + (sub.endedAt ? 'finished' : 'running') +
+          (sub.description ? ' — ' + esc(sub.description) : '') +
+          ' (internal steps not visible to this harness)</div>';
+      }
+      html += '</div>';
+    }
+  });
+  el.innerHTML = html;
+}
+
+function barRow(label, usage, max) {
+  var total = totalTokens(usage);
+  var pct = function (v) { return max > 0 ? (100 * v / max) + '%' : '0%'; };
+  return '<div class="bar-row">' +
+    '<div class="bar-label"><span>' + esc(label) + '</span><span class="muted">' + Math.round(total).toLocaleString() + '</span></div>' +
+    '<div class="bar-track">' +
+    '<span class="bar-seg input" style="width:' + pct(usage.inputTokens) + '"></span>' +
+    '<span class="bar-seg output" style="width:' + pct(usage.outputTokens) + '"></span>' +
+    '<span class="bar-seg cacheRead" style="width:' + pct(usage.cacheReadTokens) + '"></span>' +
+    '<span class="bar-seg cacheCreation" style="width:' + pct(usage.cacheCreationTokens) + '"></span>' +
+    '</div></div>';
+}
+
+function renderTokens(state) {
+  var el = document.getElementById('tokens');
+  var totals = state.totals || {};
+  var session = totals.session || { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
+  var sessionTotal = totalTokens(session);
+
+  var html = '<div class="legend">' +
+    '<span><span class="dot" style="background:var(--blue)"></span>input</span>' +
+    '<span><span class="dot" style="background:var(--purple)"></span>output</span>' +
+    '<span><span class="dot" style="background:var(--teal)"></span>cache read</span>' +
+    '<span><span class="dot" style="background:var(--orange)"></span>cache creation</span>' +
+    '</div>';
+
+  html += barRow('Session total', session, sessionTotal || 1);
+
+  var byTool = Object.entries(totals.byTool || {}).sort(function (a, b) { return totalTokens(b[1]) - totalTokens(a[1]); });
+  if (byTool.length) {
+    html += '<div class="bar-label" style="margin-top:8px"><b>By tool</b></div>';
+    var maxTool = totalTokens(byTool[0][1]);
+    byTool.slice(0, 8).forEach(function (e) { html += barRow(e[0], e[1], maxTool); });
+  }
+
+  var bySub = Object.entries(totals.bySubagent || {}).sort(function (a, b) { return totalTokens(b[1]) - totalTokens(a[1]); });
+  if (bySub.length) {
+    html += '<div class="bar-label" style="margin-top:8px"><b>By sub-agent</b></div>';
+    var maxSub = totalTokens(bySub[0][1]);
+    bySub.slice(0, 8).forEach(function (e) { html += barRow(e[0], e[1], maxSub); });
+  }
+
+  if (!sessionTotal) html += '<div class="empty-hint">No token usage recorded yet.</div>';
+
+  el.innerHTML = html;
+}
+
+function render(state) {
+  latestState = state;
+  if (state.empty) {
+    document.getElementById('meta').textContent = 'No session found under ' + (state.transcriptsRoot || '~/.claude/projects');
+    document.getElementById('timeline').innerHTML = '<div class="empty-hint">Nothing to show yet.</div>';
+    document.getElementById('tokens').innerHTML = '';
+    document.getElementById('score-row').innerHTML = '';
+    document.getElementById('signals').innerHTML = '';
+    return;
+  }
+  renderMeta(state);
+  renderScore(state);
+  renderTimeline(state);
+  renderTokens(state);
+  document.getElementById('footer').textContent = state.toolCallCount + ' tool call(s) · ' + state.errorCount + ' error(s) · ' + state.rawEntryCount + ' transcript line(s)';
+}
+
+function buildPrSummary(state) {
+  if (!state || state.empty) return '_No session data available._';
+  var lines = [];
+  lines.push('## claude-trace summary');
+  lines.push('');
+  lines.push('**Session:** `' + (state.sessionId || '?') + '` in `' + (state.cwd || '?') + '`' + (state.gitBranch ? ' (branch `' + state.gitBranch + '`)' : ''));
+  lines.push('**Confidence:** ' + state.score.score + '/100 (' + state.score.level + ')');
+  lines.push('');
+  lines.push('### Signals');
+  state.score.signals.forEach(function (s) {
+    lines.push('- ' + (s.contribution >= 0 ? '+' + s.contribution : s.contribution) + ' — **' + s.label + '**: ' + s.detail);
+  });
+  if (!state.score.signals.length) lines.push('- none triggered');
+  lines.push('');
+  var edited = Object.keys(state.filesEdited || {});
+  lines.push('### Files touched (' + edited.length + ')');
+  edited.forEach(function (f) { lines.push('- `' + f + '` (' + state.filesEdited[f] + ' edit op(s))'); });
+  if (!edited.length) lines.push('- none');
+  lines.push('');
+  lines.push('### Verifications');
+  (state.verifications || []).forEach(function (v) {
+    lines.push('- ' + (v.isError ? '❌' : '✅') + ' `' + v.command + '`');
+  });
+  if (!(state.verifications || []).length) lines.push('- none run');
+  lines.push('');
+  var subs = state.subagents || [];
+  lines.push('### Sub-agents (' + subs.length + ')');
+  subs.forEach(function (s) {
+    lines.push('- ' + (s.description || s.name) + (s.subagentType ? ' (' + s.subagentType + ')' : '') + (s.isError ? ' — error' : ''));
+  });
+  if (!subs.length) lines.push('- none');
+  lines.push('');
+  lines.push('### Tokens');
+  var session = state.totals.session;
+  lines.push('- total: ' + Math.round(totalTokens(session)).toLocaleString() +
+    ' (input ' + Math.round(session.inputTokens) + ', output ' + Math.round(session.outputTokens) +
+    ', cache read ' + Math.round(session.cacheReadTokens) + ', cache creation ' + Math.round(session.cacheCreationTokens) + ')');
+  lines.push('');
+  lines.push('_Generated by claude-trace — a process heuristic, not a substitute for reviewing the diff._');
+  return lines.join('\n');
+}
+
+document.getElementById('copy-btn').addEventListener('click', function () {
+  var text = buildPrSummary(latestState);
+  var status = document.getElementById('copy-status');
+  function ok() { status.textContent = 'copied ✓'; setTimeout(function () { status.textContent = ''; }, 1500); }
+  function fail() { status.textContent = 'copy failed'; setTimeout(function () { status.textContent = ''; }, 1500); }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(ok, fail);
+  } else {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      ok();
+    } catch (e) { fail(); }
+  }
+});
+
+function connect() {
+  var es = new EventSource('/api/stream');
+  es.addEventListener('state', function (ev) {
+    try { render(JSON.parse(ev.data)); } catch (e) { /* ignore malformed frame */ }
+  });
+  es.addEventListener('empty', function () {
+    render({ empty: true });
+  });
+  es.onerror = function () {
+    // EventSource auto-reconnects; fall back to a manual poll meanwhile.
+    fetch('/api/state').then(function (r) { return r.json(); }).then(render).catch(function () {});
+  };
+}
+
+connect();
+</script>
+</body>
+</html>
