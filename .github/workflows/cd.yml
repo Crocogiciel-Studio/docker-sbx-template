@@ -75,7 +75,7 @@ jobs:
       fail-fast: false
       matrix:
         # Add more kits here.
-        kit: [aidd, pnpm]
+        kit: [aidd, pnpm, claude-trace]
 
     steps:
       - name: Checkout the repository

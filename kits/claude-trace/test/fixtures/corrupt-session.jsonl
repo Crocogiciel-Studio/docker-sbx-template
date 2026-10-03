@@ -1,0 +1,5 @@
+{"type":"user","isSidechain":false,"sessionId":"corrupt-0004","cwd":"/work/app","gitBranch":"main","timestamp":"2026-10-01T13:00:00.000Z","message":{"role":"user","content":"Tweak the README"}}
+
+{"type":"assistant","isSidechain":false,"sessionId":"corrupt-0004","cwd":"/work/app","gitBranch":"main","timestamp":"2026-10-01T13:00:05.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_edit6","name":"Edit","input":{"file_path":"/work/app/README.md","old_string":"old","new_string":"new"}}],"usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5}}}
+{"type":"user","isSidechain":false,"sessionId":"corrupt-0004","cwd":"/work/app","timestamp":"2026-10-01T13:00:06.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_edit6","content":"Updated.","is_error":false}]}}
+{"type":"assistant","isSidechain":false,"sessionId":"corrupt-0004","cwd":"/work/app","timestamp":"2026-10-01T13:00:08.000Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_bash4","name":"Bash","input":{"command":"echo done
